@@ -1,6 +1,7 @@
 import express from "express";
 import dotenv from "dotenv";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import cors from "cors";
 
 dotenv.config();
 
@@ -8,6 +9,7 @@ const app = express();
 const port = 8000;
 
 app.use(express.json());
+app.use(cors());
 
 function getCurrentDate() {
   return new Date().toISOString().split("T")[0];
@@ -98,56 +100,53 @@ const database = [
 
 // Carbon Footprint Estimation Route
 app.get("/carbon", async (req, res) => {
-  try {
-    const item = req.query.item;
-    const apiKey = process.env.GEMINI_KEY;
+  const item = req.query.item;
+  const apiKey = process.env.GEMINI_KEY;
+  console.log(apiKey);
 
-    if (!apiKey) {
-      return res.status(500).json({ error: "Missing API key" });
-    }
+  const genAI = new GoogleGenerativeAI(String(apiKey));
+  const model = genAI.getGenerativeModel({
+    model: "gemini-1.5-flash",
+    generationConfig: { responseMimeType: "application/json" },
+  });
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
-      generationConfig: { responseMimeType: "application/json" },
-    });
+  const currentDate = new Date().toISOString().split("T")[0];
 
-    const currentDate = getCurrentDate();
-
-    const prompt = `Estimate the total carbon footprint of ${item} from production to retail, considering factors such as farming, processing, transportation, and packaging. Additionally, identify the most sustainable brand for this product based on its carbon footprint, ethical sourcing, and packaging sustainability. Use the following JSON schema:
-
+  const prompt = `Estimate the total carbon footprint of ${item} from production to retail, considering factors such as farming, processing, transportation, and packaging. Additionally, identify the most sustainable brand for this product based on its carbon footprint, ethical sourcing, and packaging sustainability. Use the following JSON schema:
+  
     CarbonFootPrint = {
-      "product": str,  
-      "unit_of_product": str, 
-      "number_of_units": str, 
-      "carbon_footprint": number, 
-      "unit_of_carbon" : str, 
-      "sustainable_brand": str, 
-      "date": "${currentDate}" 
+      "product": str,
+      "unit_of_product": str,
+      "number_of_units": str,
+      "carbon_footprint": number,
+      "unit_of_carbon" : str,
+      "sustainable_brand": str,
+      "date": "${currentDate}"
     }
+  
+    Return the result as a JSON object.`;
 
-    Return the result as a JSON object. If no data is available, estimate based on similar products. Ensure the response is structured correctly.`;
-
+  try {
     const data = await model.generateContent(prompt);
     const result = await data.response.text();
+    console.log(result);
+
     const jsonObject = JSON.parse(result);
-
     database.push(jsonObject);
-
     res.json(jsonObject);
   } catch (error) {
-    console.error("Error:", error);
-    res.status(500).json({ error: "Failed to fetch carbon footprint data" });
+    res.status(500).json({ error: "Error generating carbon footprint data." });
   }
 });
 
 // Delete Last Entry Route
 app.get("/delete", (req, res) => {
-  if (database.length === 0) {
-    return res.status(400).json({ error: "No data to delete" });
+  if (database.length > 0) {
+    database.pop();
+    res.json({ message: "Last entry deleted.", database });
+  } else {
+    res.json({ message: "Database is empty." });
   }
-  database.pop();
-  res.json(database);
 });
 
 // History Route (Fetch All Entries)
